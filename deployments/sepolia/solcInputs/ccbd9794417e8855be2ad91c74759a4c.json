@@ -1,0 +1,38 @@
+{
+  "language": "Solidity",
+  "sources": {
+    "contracts/interface/IMultiSignWallet.sol": {
+      "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.19;\n\ninterface IMultiSignWallet {\n\n    struct Transaction {\n        address to;\n        uint256 value;\n        bool executed;\n        uint numConfirmations;\n    }\n\n    function submitTransaction(address _to, uint256 _value) external;\n\n    function confirmTransaction(uint256 _txIndex) external;\n\n    function revokeConfirmation(uint256 _txIndex) external;\n\n    function executeTransaction(uint256 _txIndex) external;\n\n    event Deposit(address indexed sender, uint amount, uint balance);\n\n    event SubmitTransaction(\n        uint256 indexed txIndex,\n        address indexed owner,\n        address indexed to,\n        uint256 value\n    );\n\n    event ConfirmTransaction(address indexed owner, uint256 indexed txIndex);\n\n    event RevokeConfirmation(address indexed owner, uint256 indexed txIndex);\n\n    event ExecuteTransaction(address indexed owner, uint256 indexed txIndex);\n}"
+    },
+    "contracts/MultiSignWallet.sol": {
+      "content": "// SPDX-License-Identifier: MIT\npragma solidity ^0.8.19;\n\nimport \"./interface/IMultiSignWallet.sol\";\n\ncontract MultiSignWallet is IMultiSignWallet {\n    address[] public owners;\n    Transaction[] public transactions;\n    uint256 public minConfirmationsRequired;\n    mapping(address account => bool) isOwner;\n    mapping(uint256 index => mapping(address owner => bool)) isConfirmed;\n\n    modifier onlyOwner() {\n        require(isOwner[msg.sender], \"not owner\");\n        _;\n    }\n\n    modifier txExists(uint _txIndex) {\n        require(_txIndex < transactions.length, \"tx does not exist\");\n        _;\n    }\n\n    modifier notExecuted(uint _txIndex) {\n        require(!transactions[_txIndex].executed, \"tx already executed\");\n        _;\n    }\n\n    modifier notConfirmed(uint _txIndex) {\n        require(!isConfirmed[_txIndex][msg.sender], \"tx already confirmed\");\n        _;\n    }\n\n    constructor(address[] memory _owners, uint _minConfirmationsRequired) {\n        require(_owners.length > 0, \"owners required\");\n        require(\n            _minConfirmationsRequired > 0 &&\n                _minConfirmationsRequired <= _owners.length,\n            \"invalid number of required confirmations\"\n        );\n\n        for (uint i = 0; i < _owners.length; i++) {\n            address owner = _owners[i];\n\n            require(owner != address(0), \"invalid owner\");\n            require(!isOwner[owner], \"owner not unique\");\n\n            isOwner[owner] = true;\n            owners.push(owner);\n        }\n\n        minConfirmationsRequired = _minConfirmationsRequired;\n    }\n\n    function submitTransaction(\n        address _to,\n        uint256 _value\n    ) external override onlyOwner {\n        uint256 txIndex = transactions.length;\n\n        transactions.push(\n            Transaction({\n                to: _to,\n                value: _value,\n                executed: false,\n                numConfirmations: 0\n            })\n        );\n\n        emit SubmitTransaction(txIndex, msg.sender, _to, _value);\n    }\n\n    function confirmTransaction(\n        uint256 _txIndex\n    ) external override onlyOwner txExists(_txIndex) notExecuted(_txIndex) notConfirmed(_txIndex) {\n        Transaction storage transaction = transactions[_txIndex];\n        ++transaction.numConfirmations;\n        isConfirmed[_txIndex][msg.sender] = true;\n\n        emit ConfirmTransaction(msg.sender, _txIndex);\n\n    }\n\n    function revokeConfirmation(\n        uint256 _txIndex\n    ) external override onlyOwner txExists(_txIndex) notExecuted(_txIndex) {\n        Transaction storage transaction = transactions[_txIndex];\n        require(isConfirmed[_txIndex][msg.sender], \"Tx not confirmed\");\n\n        --transaction.numConfirmations;\n        isConfirmed[_txIndex][msg.sender] = false;\n\n        emit RevokeConfirmation(msg.sender, _txIndex);\n    }\n\n    function executeTransaction(\n        uint256 _txIndex\n    ) external override onlyOwner txExists(_txIndex) notExecuted(_txIndex) {\n        Transaction storage transaction = transactions[_txIndex];\n        require(\n            transaction.numConfirmations >= minConfirmationsRequired,\n            \"cannot execute tx\"\n        );\n\n        transaction.executed = true;\n        (bool success, ) = transaction.to.call{value: transaction.value}('');\n        require(success, \"Tx execute failed\");\n\n        emit ExecuteTransaction(msg.sender, _txIndex);\n    }\n\n    function getOwners() external view returns (address[] memory) {\n        return owners;\n    }\n\n    function getTransactionCount() external view returns (uint) {\n        return transactions.length;\n    }\n\n    function getTransaction(\n        uint _txIndex\n    ) external view returns (Transaction memory) {\n        return transactions[_txIndex];\n    }\n\n    receive() external payable {\n        emit Deposit(msg.sender, msg.value, address(this).balance);\n    }\n}\n"
+    }
+  },
+  "settings": {
+    "optimizer": {
+      "enabled": false,
+      "runs": 200
+    },
+    "outputSelection": {
+      "*": {
+        "*": [
+          "abi",
+          "evm.bytecode",
+          "evm.deployedBytecode",
+          "evm.methodIdentifiers",
+          "metadata",
+          "devdoc",
+          "userdoc",
+          "storageLayout",
+          "evm.gasEstimates"
+        ],
+        "": [
+          "ast"
+        ]
+      }
+    },
+    "metadata": {
+      "useLiteralContent": true
+    }
+  }
+}
